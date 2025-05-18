@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Игра с убийствами и командами</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 10px; }
+    #game, #admin-section { display: none; margin-top: 20px; }
+    #team-list { list-style: none; padding-left: 0; }
+    #map { height: 200px; background: #eee; margin-top: 10px; padding: 5px; }
+    .player { margin: 3px 0; }
+    #chat { border: 1px solid #ccc; height: 150px; overflow-y: auto; padding: 5px; background: #fafafa; }
+    #chat-controls { margin-top: 5px; }
+    #killer-controls { display:none; margin-top:10px; }
+  </style>
+</head>
+<body>
+  <h1>Игра с убийствами и командами</h1>
+
+  <section id="auth">
+    <h2>Регистрация / Вход</h2>
+    <input id="username" placeholder="Ник игрока" /><br /><br />
+    <input id="phone" placeholder="Номер телефона" /><br /><br />
+    <button id="register-btn">Зарегистрироваться</button>
+    <button id="login-btn">Войти</button>
+    <p id="auth-msg" style="color:red"></p>
+  </section>
+
+  <section id="game">
+    <h2>Игра</h2>
+    <div>Вы вошли как: <span id="current-user"></span> (роль: <span id="current-role"></span>)</div>
+
+    <h3>Команды</h3>
+    <ul id="team-list"></ul>
+
+    <h3>Игроки на карте</h3>
+    <div id="map"></div>
+
+    <h3>Глобальный чат</h3>
+    <div id="chat"></div>
+    <div id="chat-controls">
+      <input type="text" id="chat-input" placeholder="Сообщение в чат" />
+      <button id="chat-send-btn">Отправить</button>
+    </div>
+
+    <div id="killer-controls">
+      <h4>Убить игрока (только для Киллера)</h4>
+      <select id="kill-target-select"></select>
+      <button id="kill-btn">Убить</button>
+    </div>
+  </section>
+
+  <section id="admin-section">
+    <h2>Админка: Управление ролями</h2>
+    <select id="admin-player-select"></select>
+    <select id="admin-role-select">
+      <option value="killer">Киллер</option>
+      <option value="detective">Детектив</option>
+      <option value="commander">Командир</option>
+      <option value="guide">Провожатый</option>
+      <option value="messenger">Адресатор</option>
+      <option value="citizen">Гражданин</option>
+      <option value="random">Рандомный</option>
+      <option value="admin">Админ</option>
+    </select>
+    <button id="assign-role-btn">Выдать роль</button>
+    <p id="admin-msg" style="color:green"></p>
+  </section>
+
+  <script>
+    const users = [];
+    const teams = [
+      {name: "Команда 1", members: []},
+      {name: "Команда 2", members: []},
+      {name: "Команда 3", members: []}
+    ];
+    const specialRoles = ["commander", "guide"];
+    const otherRoles = ["killer", "detective", "messenger", "citizen"];
+    let loggedInUser = null;
+
+    function getRandomRole() {
+      const idx = Math.floor(Math.random() * otherRoles.length);
+      return otherRoles[idx];
+    }
+
+    function addChatMessage(text) {
+      const chat = document.getElementById("chat");
+      const msg = document.createElement("div");
+      msg.textContent = text;
+      chat.appendChild(msg);
+      chat.scrollTop = chat.scrollHeight;
+    }
+
+    document.getElementById("chat-send-btn").onclick = () => {
+      if (loggedInUser.role === 'killer') {
+        alert('Киллер не может отвечать в чате.');
+        return;
+      }
+      const text = document.getElementById("chat-input").value.trim();
+      if (!text) return;
+      addChatMessage(`${loggedInUser.username}: ${text}`);
+      document.getElementById("chat-input").value = '';
+    };
+
+    document.getElementById("register-btn").onclick = () => {
+      const username = document.getElementById("username").value.trim();
+      const phone = document.getElementById("phone").value.trim();
+      if (!username || !phone) {
+        document.getElementById("auth-msg").textContent = "Введите ник и номер телефона";
+        return;
+      }
+      if (users.some(u => u.username === username || u.phone === phone)) {
+        document.getElementById("auth-msg").textContent = "Такой ник или телефон уже зарегистрированы";
+        return;
+      }
+      const role = getRandomRole();
+      const teamIndex = Math.floor(Math.random() * teams.length);
+      const user = {username, phone, role, team: teams[teamIndex].name, favorite: false, alive: true};
+      users.push(user);
+      teams[teamIndex].members.push(username);
+      document.getElementById("auth-msg").style.color = "green";
+      document.getElementById("auth-msg").textContent = `Зарегистрированы как ${username} с ролью ${role} в ${teams[teamIndex].name}`;
+      document.getElementById("username").value = "";
+      document.getElementById("phone").value = "";
+    };
+
+    document.getElementById("login-btn").onclick = () => {
+      const username = document.getElementById("username").value.trim();
+      const user = users.find(u => u.username === username);
+      if (!user) {
+        document.getElementById("auth-msg").style.color = "red";
+        document.getElementById("auth-msg").textContent = "Пользователь не найден";
+        return;
+      }
+      loggedInUser = user;
+      document.getElementById("auth").style.display = "none";
+      document.getElementById("game").style.display = "block";
+      document.getElementById("current-user").textContent = user.username;
+      document.getElementById("current-role").textContent = user.role;
+      updateTeamList();
+      updateMap();
+      updateKillTargetSelect();
+      document.getElementById("killer-controls").style.display = user.role === 'killer' ? 'block' : 'none';
+      if (user.role === 'admin') {
+        document.getElementById("admin-section").style.display = "block";
+        updateAdminPlayerSelect();
+      }
+    };
+
+    function updateTeamList() {
+      const list = document.getElementById("team-list");
+      list.innerHTML = "";
+      teams.forEach(team => {
+        const aliveCount = team.members.filter(name => {
+          const u = users.find(u => u.username === name);
+          return u && u.alive;
+        }).length;
+        const li = document.createElement("li");
+        li.textContent = `${team.name} — игроков живых: ${aliveCount}`;
+        list.appendChild(li);
+      });
+    }
+
+    function updateMap() {
+      const mapDiv = document.getElementById("map");
+      mapDiv.innerHTML = "";
+      users.forEach(u => {
+        const div = document.createElement("div");
+        div.className = "player";
+        div.style.color = u.alive ? "black" : "gray";
+        div.textContent = `${u.username} (${u.role}) — ${u.team} — ${u.alive ? "Жив" : "Мертв"}`;
+        if (u.favorite) div.style.fontWeight = "bold";
+        mapDiv.appendChild(div);
+      });
+    }
+
+    function updateKillTargetSelect() {
+      const select = document.getElementById("kill-target-select");
+      select.innerHTML = "";
+      users.forEach(u => {
+        if (u.alive && u.username !== loggedInUser.username) {
+          const option = document.createElement("option");
+          option.value = u.username;
+          option.textContent = `${u.username} (${u.role}) — ${u.team}`;
+          select.appendChild(option);
+        }
+      });
+    }
+
+    document.getElementById("kill-btn").onclick = () => {
+      const targetName = document.getElementById("kill-target-select").value;
+      const target = users.find(u => u.username === targetName);
+      if (!target || !target.alive) return;
+      // Предупреждение, если союзник
+      if (target.team === loggedInUser.team) {
+        if (!confirm("Вы убиваете союзника! Вы уверены?")) return;
+      }
+      target.alive = false;
+      addChatMessage(`Игрок ${target.username} убит Киллером!`);
+      const team = teams.find(t => t.name === target.team);
+      const aliveKillers = team.members.map(name => users.find(u => u.username === name))
+        .filter(u => u && u.role === "killer" && u.alive);
+      if (aliveKillers.length === 0) {
+        addChatMessage(`Команда ${team.name} проиграла, так как её киллер убит!`);
+      }
+      updateMap();
+      updateTeamList();
+      updateKillTargetSelect();
+    };
+
+    function updateAdminPlayerSelect() {
+      const select = document.getElementById("admin-player-select");
+      select.innerHTML = "";
+      users.forEach(u => {
+        const opt = document.createElement("option");
+        opt.value = u.username;
+        opt.textContent = `${u.username} (${u.role})`;
+        select.appendChild(opt);
+      });
+    }
+
+    document.getElementById("assign-role-btn").onclick = () => {
+      const username = document.getElementById("admin-player-select").value;
+      const role = document.getElementById("admin-role-select").value;
+      const user = users.find(u => u.username === username);
+      if (!user) return;
+      user.role = role === 'random' ? getRandomRole() : role;
+      document.getElementById("admin-msg").textContent = `Роль ${user.role} выдана ${user.username}`;
+      if (loggedInUser.username === user.username) {
+        document.getElementById("current-role").textContent = user.role;
+      }
+      updateMap();
+      updateAdminPlayerSelect();
+    };
+  </script>
+</body>
+</html>
+
